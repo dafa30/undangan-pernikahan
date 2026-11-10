@@ -8,6 +8,7 @@ Aplikasi undangan pernikahan digital interaktif untuk Dafa Adi Raharjo dan Taniy
 - Hitung mundur menuju acara pada 23 Mei 2027.
 - Informasi mempelai, kisah pasangan, galeri foto, dan detail acara.
 - Kontrol musik latar.
+- Animasi sampul, kemunculan bagian undangan, galeri, dan ucapan menggunakan Framer Motion. Gerakan berulang dan animasi pergerakan menyesuaikan preferensi pengurangan gerakan perangkat.
 - RSVP dan buku ucapan yang tersimpan di Supabase serta diperbarui secara realtime.
 - Pemolesan ucapan dengan Google Gemini.
 - Dashboard admin di `/admin` untuk melihat statistik RSVP, mencari ucapan, dan menghapus entri.
@@ -78,3 +79,5 @@ Halaman `/admin` saat ini belum memiliki autentikasi atau pembatasan akses. Jang
 - `app/actions.ts`: operasi buku tamu, penghapusan ucapan, dan integrasi Gemini.
 - `lib/lib/supabase.ts`: klien Supabase.
 - `public/`: foto, gambar, QR, serta aset musik undangan.
+
+Ornamen mawar pada sampul menggunakan foto [Wedding bouquet white roses](https://commons.wikimedia.org/wiki/File:Wedding_bouquet_white_roses.jpg) oleh Rosendahl, berstatus domain publik. Foto dipotong dan diberi transparansi untuk digunakan sebagai ornamen.

@@ -2,6 +2,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from "@/lib/lib/supabase";
+import type { Wish } from "@/lib/wish";
 
 // Inisialisasi Gemini API
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -29,9 +30,9 @@ export async function enhanceWishWithAI(rawWish: string) {
         // Jika berhasil mendapatkan teks, keluar dari loop
         console.log(`[BERHASIL] Menggunakan model: ${modelName}`);
         break; 
-      } catch (e: any) {
+      } catch (error) {
         // Jika model ini 404/gagal, catat di terminal dan lanjut ke model berikutnya
-        console.log(`[GAGAL] Model ${modelName} tidak tersedia.`);
+        console.error(`[GAGAL] Model ${modelName} tidak tersedia.`, error);
       }
     }
 
@@ -76,7 +77,7 @@ export async function addWish(data: {
   };
 }
 
-export async function getWishes() {
+export async function getWishes(): Promise<Wish[]> {
   const { data, error } = await supabase
     .from("wishes")
     .select("*")

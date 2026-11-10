@@ -4,26 +4,41 @@ import { useEffect, useState } from "react";
 import {getWishes,deleteWish,} from "../actions";
 import { Trash2 } from "lucide-react";
 import { supabase } from "@/lib/lib/supabase";
+import type { Wish } from "@/lib/wish";
+import { NotificationDialog, type Notification } from "../notification-dialog";
 
 
 export default function AdminPage() {
-    const [guestBook, setGuestBook] = useState<any[]>([]);
+    const [guestBook, setGuestBook] = useState<Wish[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [notification, setNotification] = useState<Notification | null>(null);
 
     const loadData = async () => {
 
-    const data = await getWishes();
-
-    setGuestBook(data);
-
-    setLoading(false);
+    try {
+        const data = await getWishes();
+        setGuestBook(data);
+    } catch (error) {
+        console.error("Gagal memuat RSVP:", error);
+    } finally {
+        setLoading(false);
+    }
 
     };
 
     useEffect(() => {
 
-    loadData();
+    let active = true;
+    getWishes().then((data) => {
+        if (active) {
+            setGuestBook(data);
+            setLoading(false);
+        }
+    }).catch((error) => {
+        console.error("Gagal memuat RSVP:", error);
+        if (active) setLoading(false);
+    });
 
     const channel = supabase
         .channel("admin-wishes")
@@ -43,17 +58,23 @@ export default function AdminPage() {
         .subscribe();
 
     return () => {
+        active = false;
         supabase.removeChannel(channel);
     };
 
     }, []);
 
     const handleDelete = async (id: number) => {
-    const result = await deleteWish(id);
-    if (result.success) {
-        await loadData();
-    } else {
-        alert(result.message);
+    try {
+        const result = await deleteWish(id);
+        if (result.success) {
+            await loadData();
+        } else {
+            setNotification({ kind: "error", title: "Gagal menghapus ucapan", message: result.message });
+        }
+    } catch (error) {
+        console.error("Gagal menghapus ucapan:", error);
+        setNotification({ kind: "error", title: "Gagal menghapus ucapan", message: "Silakan coba lagi." });
     }
     };
 
@@ -117,7 +138,7 @@ export default function AdminPage() {
             </p>
 
             </div>
-
+            <NotificationDialog notification={notification} onClose={() => setNotification(null)} />
         </div>
 
         {/* Search */}
@@ -180,7 +201,7 @@ export default function AdminPage() {
                 </div>
 
                 <p className="mt-5 text-gray-600 italic">
-                "{item.wish}"
+                &quot;{item.wish}&quot;
                 </p>
             </div>
             ))}

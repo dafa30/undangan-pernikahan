@@ -1,0 +1,136 @@
+.curtain {
+  background: #063d2c url("/tirai3.jpg") center / cover no-repeat;
+  filter: brightness(.8);
+}
+
+.shade {
+  background: linear-gradient(180deg, rgba(1, 37, 26, .32), rgba(0, 68, 43, .22) 48%, rgba(0, 28, 20, .7));
+  box-shadow: inset 0 0 130px rgba(0, 0, 0, .45);
+}
+
+.florals {
+  position: absolute;
+  z-index: 1;
+  bottom: -2rem;
+  width: min(45vw, 300px);
+  height: min(48vh, 320px);
+  pointer-events: none;
+  background: url("/cover-roses.webp") center / contain no-repeat;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .5));
+}
+
+.floralsLeft {
+  left: -5rem;
+  transform: rotate(20deg);
+}
+
+.floralsRight {
+  right: -5rem;
+  transform: scaleX(-1) rotate(20deg);
+}
+
+.floralsTopLeft,
+.floralsTopRight {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .florals {
+    width: min(32vw, 460px);
+    height: min(55vh, 490px);
+    bottom: -5rem;
+  }
+
+  .floralsLeft {
+    left: -5rem;
+  }
+
+  .floralsRight {
+    right: -5rem;
+  }
+
+  .floralsTopLeft,
+  .floralsTopRight {
+    display: block;
+    top: -12rem;
+    bottom: auto;
+    width: min(25vw, 360px);
+    height: min(40vh, 360px);
+    opacity: .8;
+  }
+
+  .floralsTopLeft {
+    left: -7rem;
+    transform: rotate(155deg);
+  }
+
+  .floralsTopRight {
+    right: -7rem;
+    transform: scaleX(-1) rotate(155deg);
+  }
+}
+
+.envelope {
+  aspect-ratio: 1.65;
+  perspective: 1000px;
+  filter: drop-shadow(0 16px 24px rgba(0, 0, 0, .4));
+}
+
+.back,
+.front,
+.flap,
+.letter {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.back {
+  border-radius: 2px;
+  background: #d7c6b3;
+}
+
+.letter {
+  z-index: 1;
+  inset: 10% 12%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 10%;
+  background: #fffaf0;
+  border: 1px solid #e8ddce;
+  box-shadow: 0 2px 8px rgba(52, 31, 25, .16);
+}
+
+.front {
+  z-index: 2;
+  background: linear-gradient(145deg, #f8f2e7, #e4d7c6);
+  clip-path: polygon(0 0, 50% 58%, 100% 0, 100% 100%, 0 100%);
+}
+
+.flap {
+  z-index: 3;
+  transform-origin: top center;
+  background: linear-gradient(155deg, #fffaf1, #e7daca);
+  clip-path: polygon(0 0, 100% 0, 50% 61%);
+  backface-visibility: visible;
+}
+
+.seal {
+  position: absolute;
+  z-index: 4;
+  top: 49%;
+  left: 50%;
+  display: flex;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  margin-left: -24px;
+  border: 3px double #c2d7b6;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #24835c, #075138 70%);
+  color: #f0ead4;
+  box-shadow: 0 3px 8px rgba(4, 38, 27, .35);
+}

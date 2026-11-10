@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { motion, Variants, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import Image from 'next/image';
+import { motion, Variants, AnimatePresence, MotionConfig, useReducedMotion } from 'framer-motion';
 import { supabase } from "@/lib/lib/supabase";
 import {
   enhanceWishWithAI,
@@ -18,21 +19,49 @@ import {
   Quote,
   MessageCircle,
   Coffee,
-  Map,
   Copy,
   Check,
-  CreditCard,
-  Smartphone,
-  QrCode,
-  Mail,
-  ChevronUp,
   Play,
   Pause,
 } from 'lucide-react';
 
 import { greatVibes } from "@/app/fonts";
+import type { Wish } from "@/lib/wish";
+import { NotificationDialog, type Notification } from "./notification-dialog";
+import cover from "./cover.module.css";
+
+const storySteps = [
+  {
+    title: "Pertama Kali Kenal",
+    date: "Tahun 2017",
+    description: "Berawal dari sapaan sederhana di dunia maya. Percakapan kecil yang perlahan mengubah hari-hari biasa menjadi rutinitas yang selalu dinanti.",
+    icon: MessageCircle,
+  },
+  {
+    title: "Jadian",
+    date: "Akhir 2017",
+    description: "Jarak tidak menjadi penghalang. Kami memutuskan untuk saling mengikat komitmen satu sama lain.",
+    icon: Heart,
+  },
+  {
+    title: "Pertama Kali Ketemu",
+    date: "Awal 2018",
+    description: "Setelah sekian lama hanya bertukar suara dan pesan, momen pertemuan pertama itu akhirnya tiba. Canggung sebentar, lalu terasa seperti sudah saling kenal sangat lama.",
+    icon: Coffee,
+  },
+];
+
+function subscribeToGuestName(callback: () => void) {
+  window.addEventListener("popstate", callback);
+  return () => window.removeEventListener("popstate", callback);
+}
+
+function getGuestName() {
+  return new URLSearchParams(window.location.search).get("to") || "Nama Tamu";
+}
 
 export default function WeddingInvitation() {
+  const shouldReduceMotion = useReducedMotion();
 
   // =========================
   // COUNTDOWN
@@ -53,17 +82,10 @@ export default function WeddingInvitation() {
   const [rawWish, setRawWish] = useState('');
   const [formattedWish, setFormattedWish] = useState('');
 
-  const [guestBook, setGuestBook] = useState<
-    {
-      id?: number;
-      name: string;
-      attendance: string;
-      wish: string;
-      created_at?: string;
-    }[]
-  >([]);
+  const [guestBook, setGuestBook] = useState<Wish[]>([]);
 
   const [loadingWish, setLoadingWish] = useState(false);
+  const [notification, setNotification] = useState<Notification | null>(null);
 
   const [isEnhancing, setIsEnhancing] = useState(false);
 
@@ -82,16 +104,21 @@ export default function WeddingInvitation() {
   // OPEN COVER
   // =========================
   const [isOpened, setIsOpened] = useState(false);
+  const [isOpening, setIsOpening] = useState(false);
 
   // =========================
   // GUEST NAME
   // =========================
-  const [guestName, setGuestName] = useState('Nama Tamu');
+  const guestName = useSyncExternalStore(subscribeToGuestName, getGuestName, () => "Nama Tamu");
 
   async function loadGuestBook() {
-  const data = await getWishes();
-  setGuestBook(data);
-}
+    try {
+      const data = await getWishes();
+      setGuestBook(data);
+    } catch (error) {
+      console.error("Gagal memuat buku tamu:", error);
+    }
+  }
 
   useEffect(() => {
     const targetDate = new Date('2027-05-23T08:00:00').getTime();
@@ -105,14 +132,6 @@ export default function WeddingInvitation() {
         Detik: Math.floor((difference % (1000 * 60)) / 1000),
       });
     }, 1000);
-
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const to = urlParams.get('to');
-      if (to) {
-        setGuestName(to);
-      }
-    }
 
     return () => clearInterval(interval);
   }, []);
@@ -148,7 +167,9 @@ export default function WeddingInvitation() {
   };
 
   const handleOpenInvitation = async () => {
-    setIsOpened(true);
+    if (isOpening) return;
+    setIsOpening(true);
+    if (shouldReduceMotion) setIsOpened(true);
 
     if (!audioRef.current) return;
 
@@ -162,49 +183,61 @@ export default function WeddingInvitation() {
 
   const handleSubmitRSVP = async () => {
       if (!name.trim()) {
-        alert("Silakan isi nama.");
+        setNotification({ kind: "error", title: "Silakan isi nama." });
         return;
       }
 
       const wish = formattedWish || rawWish;
 
       if (!wish.trim()) {
-        alert("Silakan isi doa atau ucapan.");
+        setNotification({ kind: "error", title: "Silakan isi doa atau ucapan." });
         return;
       }
 
       setLoadingWish(true);
 
-      const result = await addWish({
-        name,
-        attendance,
-        wish,
-      });
+      try {
+        const result = await addWish({ name, attendance, wish });
 
-      setLoadingWish(false);
+        if (!result.success) {
+          setNotification({ kind: "error", title: "Gagal mengirim RSVP", message: result.message });
+          return;
+        }
 
-      if (!result.success) {
-        alert(result.message);
-        return;
+        setName("");
+        setAttendance("Hadir");
+        setRawWish("");
+        setFormattedWish("");
+        setNotification({
+          kind: "success",
+          title: "Terima kasih do'a nya ya",
+          message: "Doa dan ucapanmu sangat berarti bagi kami.",
+        });
+        loadGuestBook();
+      } catch (error) {
+        console.error("Gagal mengirim RSVP:", error);
+        setNotification({ kind: "error", title: "Gagal mengirim RSVP", message: "Silakan coba lagi." });
+      } finally {
+        setLoadingWish(false);
       }
-
-      alert("Terima kasih atas doa dan konfirmasinya ❤️");
-
-      setName("");
-      setAttendance("Hadir");
-      setRawWish("");
-      setFormattedWish("");
-
-      loadGuestBook();
   };
 
   const fadeInUp: Variants = {
     hidden: { opacity: 0, y: 40 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: "easeOut" } }
+    visible: (index: number = 0) => ({
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.8, ease: "easeOut", delay: shouldReduceMotion ? 0 : index * 0.12 },
+    }),
   };
 
     useEffect(() => {
-    loadGuestBook();
+    let active = true;
+    getWishes().then((data) => {
+      if (active) setGuestBook(data);
+    }).catch((error) => {
+      console.error("Gagal memuat buku tamu:", error);
+    });
 
     const channel = supabase
       .channel("guestbook")
@@ -225,6 +258,7 @@ export default function WeddingInvitation() {
       .subscribe();
 
     return () => {
+      active = false;
       supabase.removeChannel(channel);
     };
   }, []);
@@ -235,6 +269,7 @@ export default function WeddingInvitation() {
   ).length;
 
   return (
+    <MotionConfig reducedMotion="user">
     <main className={`min-h-screen bg-[#fafaf8] text-[#2b3824] font-sans overflow-x-hidden selection:bg-[#cddbc0] ${!isOpened ? 'h-screen overflow-hidden' : ''}`}>
       {/* Background music: browsers will pick the first supported source. Place your audio file in `public/` */}
       <audio ref={audioRef} loop preload="auto" aria-hidden="true">
@@ -248,83 +283,84 @@ export default function WeddingInvitation() {
         {!isOpened && (
           <motion.div 
             key="envelope"
-            initial={{ y: 0 }}
-            exit={{ y: '-100vh', opacity: 0 }}
-            transition={{ duration: 1.2, ease: [0.76, 0, 0.24, 1] }}
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center text-white px-6 py-12 overflow-hidden"          >
-            <div className="absolute inset-0 pointer-events-none">
-              <div
-                className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: "url('/screen.png')" }}
-              />
-            </div>
-
-            {/* Latar Belakang Gradasi yang Lebih Tajam */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, ease: 'easeOut' }}
-              className="absolute inset-0 bg-black/25"
-            />
-
-            <div className="z-10 flex flex-col items-center justify-center h-full text-center">
-
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-            >
-             <p className="text-xs md:text-sm uppercase tracking-[0.6em] text-white/90 mb-6">
-              THE WEDDING OF
-            </p>
-
-          <h1
-            className={`${greatVibes.className} text-[2.6rem] sm:text-[4.5rem] md:text-[8rem] text-white leading-tight drop-shadow-2xl`}
+            exit={{ opacity: 0 }}
+            transition={{ duration: shouldReduceMotion ? 0.2 : 0.7 }}
+            className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-[#063d2c] text-[#f9f0e2]"
           >
-            Dafa <span className="text-[#d8e6c9]">&</span> Taniyah
-          </h1>
-            </motion.div>
+            <div aria-hidden="true" className={`${cover.curtain} absolute inset-0`} />
+            <div aria-hidden="true" className={`${cover.shade} absolute inset-0`} />
+            <div aria-hidden="true" className={`${cover.florals} ${cover.floralsLeft}`} />
+            <div aria-hidden="true" className={`${cover.florals} ${cover.floralsRight}`} />
+            <div aria-hidden="true" className={`${cover.florals} ${cover.floralsTopLeft}`} />
+            <div aria-hidden="true" className={`${cover.florals} ${cover.floralsTopRight}`} />
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-              className="mt-20"
-            >
-              <p className="text-sm uppercase tracking-[0.25em] text-white">
-                KEPADA YTH.
-              </p>
-
-              <p className="mt-4 text-lg md:text-xl uppercase tracking-wide text-white">
-                BAPAK / IBU / SAUDARA / I
-              </p>
-
-              <h2 className="mt-4 text-3xl md:text-4xl font-serif text-white">
-                {guestName}
-              </h2>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.6 }}
-              className="mt-20"
-            >
-              <button
-                onClick={handleOpenInvitation}
-                className="flex items-center gap-3 bg-white hover:bg-[#edf4e5] text-[#2b3824] px-10 py-4 rounded-full uppercase tracking-[0.25em] text-xs font-semibold transition-all shadow-2xl hover:scale-105"
+            <div className="relative z-10 mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center px-6 py-10 text-center sm:py-14 lg:max-w-5xl lg:py-8">
+              <motion.div
+                initial={shouldReduceMotion ? false : { opacity: 0, y: -15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8 }}
               >
-                <Mail size={16} />
-                BUKA UNDANGAN
-              </button>
-            </motion.div>
+                <p className="font-serif text-xs uppercase tracking-[0.34em] text-[#f3e7d8]/90 sm:text-sm lg:text-xl">
+                  The Wedding Of
+                </p>
+                <h1 className={`${greatVibes.className} mt-4 text-[3.4rem] leading-tight text-[#fff8ed] drop-shadow-lg sm:text-7xl lg:whitespace-nowrap lg:text-8xl xl:text-9xl`}>
+                  Dafa <span className="text-[#d3e6c6]">&</span> Taniyah
+                </h1>
+              </motion.div>
 
-          </div>
+              <motion.button
+                type="button"
+                onClick={handleOpenInvitation}
+                disabled={isOpening}
+                aria-label="Buka undangan"
+                whileHover={shouldReduceMotion || isOpening ? undefined : { scale: 1.025 }}
+                whileTap={shouldReduceMotion || isOpening ? undefined : { scale: 0.98 }}
+                className={`${cover.envelope} relative mt-14 block w-full max-w-[330px] focus-visible:outline-2 focus-visible:outline-offset-8 focus-visible:outline-[#f3e7d8] disabled:cursor-default sm:mt-16 lg:mt-12 lg:max-w-[460px] xl:max-w-[500px]`}
+              >
+                <span className="sr-only">Buka undangan</span>
+                <span aria-hidden="true" className={cover.back} />
+                <motion.span
+                  aria-hidden="true"
+                  className={cover.letter}
+                  animate={isOpening ? { y: "-46%" } : { y: "0%" }}
+                  transition={{ duration: 0.65, delay: 0.45, ease: "easeOut" }}
+                  onAnimationComplete={() => {
+                    if (isOpening && !shouldReduceMotion) setIsOpened(true);
+                  }}
+                >
+                  <span className={`${greatVibes.className} text-3xl text-[#24634c] lg:text-5xl`}>D & T</span>
+                  <span className="mt-1 text-[8px] uppercase tracking-[0.22em] text-[#8b7770] lg:text-xs">23 . 05 . 2027</span>
+                </motion.span>
+                <span aria-hidden="true" className={cover.front} />
+                <motion.span
+                  aria-hidden="true"
+                  className={cover.flap}
+                  animate={isOpening ? { rotateX: 180 } : { rotateX: 0 }}
+                  transition={{ duration: 0.65, ease: "easeInOut" }}
+                />
+                <motion.span
+                  aria-hidden="true"
+                  animate={isOpening ? { opacity: 0, scale: 0.8 } : { opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.25 }}
+                  className={cover.seal}
+                >
+                  <Heart size={20} strokeWidth={1.2} />
+                </motion.span>
+              </motion.button>
+              <p className="mt-6 text-[10px] uppercase tracking-[0.3em] text-[#f7e9dc]/90 lg:text-sm">
+                {isOpening ? "Membuka undangan..." : "Ketuk amplop untuk membuka"}
+              </p>
 
+              <div className="mt-12 max-w-full sm:mt-14 lg:mt-10">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[#e9d8c8]/85 lg:text-sm">Kepada Yth. Bapak / Ibu / Saudara / i</p>
+                <p className="mt-3 break-words font-serif text-xl text-[#fff8ed] sm:text-2xl lg:text-4xl">{guestName}</p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      <div inert={!isOpened}>
       {/* 1. HERO SECTION */}
       <section
         className="relative min-h-screen py-20 md:py-28 flex flex-col items-center justify-center text-center px-6 overflow-hidden bg-cover bg-center bg-no-repeat"
@@ -392,7 +428,7 @@ export default function WeddingInvitation() {
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="max-w-2xl text-center relative z-10 py-12">
           <Quote className="mx-auto text-[#cddbc0] mb-6" size={32} />
           <p className="text-lg md:text-2xl font-serif text-[#455a38] leading-relaxed italic">
-            "Dan di antara tanda-tanda kekuasaan-Nya ialah Dia menciptakan pasangan-pasangan untukmu dari jenismu sendiri, agar kamu merasa tenteram dan kasih sayang di antara kalian."
+            &quot;Dan di antara tanda-tanda kekuasaan-Nya ialah Dia menciptakan pasangan-pasangan untukmu dari jenismu sendiri, agar kamu merasa tenteram dan kasih sayang di antara kalian.&quot;
           </p>
           <p className="mt-6 text-sm text-[#2b3824] uppercase tracking-widest">— Ar-Rum: 21</p>
         </motion.div>
@@ -412,7 +448,7 @@ export default function WeddingInvitation() {
   <div className="absolute inset-0 bg-white/45 backdrop-blur-[1.5px]"></div>
   <div className="max-w-5xl mx-auto relative z-10 w-full py-12">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="text-center mb-10 md:mb-16">
-            <h2 className="text-lg md:text-xl font-medium text-[#2b3824] mb-6 tracking-wide">Assalamu'alaikum Wr. Wb.</h2>
+            <h2 className="text-lg md:text-xl font-medium text-[#2b3824] mb-6 tracking-wide">Assalamu&apos;alaikum Wr. Wb.</h2>
             <p className="text-sm md:text-base text-[#2b3824] leading-relaxed max-w-2xl mx-auto font-light">
               Tanpa mengurangi rasa hormat, kami mengundang Bapak/Ibu/Saudara/i serta kerabat sekalian untuk menghadiri acara pernikahan kami:
             </p>
@@ -435,11 +471,11 @@ export default function WeddingInvitation() {
                 <div className="absolute -inset-4 rounded-[2.5rem] bg-[#d8e6c9]/30 blur-3xl opacity-70"></div>
 
                 <motion.div
-                  animate={{
+                  animate={shouldReduceMotion ? { y: 0, scale: 1 } : {
                     y: [0, -8, 0],
                     scale: [1, 1.015, 1],
                   }}
-                  transition={{
+                  transition={shouldReduceMotion ? { duration: 0 } : {
                     duration: 6,
                     repeat: Infinity,
                     ease: "easeInOut",
@@ -447,9 +483,11 @@ export default function WeddingInvitation() {
                   className="relative w-56 h-72 md:w-64 md:h-80 overflow-hidden rounded-4xl border-[6px] border-white bg-[#f2f6ef] shadow-[0_25px_60px_rgba(0,0,0,0.18)]"
                 >
 
-                  <img
+                  <Image
                     src="/dafa.jpeg"
                     alt="Foto Dafa"
+                    fill
+                    sizes="(min-width: 768px) 256px, 224px"
                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
@@ -500,11 +538,11 @@ export default function WeddingInvitation() {
                 <div className="absolute -inset-4 rounded-[2.5rem] bg-[#d8e6c9]/30 blur-3xl opacity-70"></div>
 
                 <motion.div
-                  animate={{
+                  animate={shouldReduceMotion ? { y: 0, scale: 1 } : {
                     y: [0, -8, 0],
                     scale: [1, 1.015, 1],
                   }}
-                  transition={{
+                  transition={shouldReduceMotion ? { duration: 0 } : {
                     duration: 6,
                     repeat: Infinity,
                     ease: "easeInOut",
@@ -512,9 +550,11 @@ export default function WeddingInvitation() {
                   className="relative w-56 h-72 md:w-64 md:h-80 overflow-hidden rounded-4xl border-[6px] border-white bg-[#f2f6ef] shadow-[0_25px_60px_rgba(0,0,0,0.18)]"
                 >
 
-                  <img
+                  <Image
                     src="/taniyah.jpg"
                     alt="Foto Taniyah"
+                    fill
+                    sizes="(min-width: 768px) 256px, 224px"
                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
@@ -543,40 +583,55 @@ export default function WeddingInvitation() {
       </section>
 
       {/* 4. STORY OF US */}
-      <section className="py-24 px-6 bg-[#fafaf8]">
+      <section className="py-24 px-6 bg-[#fafaf8]" aria-labelledby="story-heading">
         <div className="max-w-5xl mx-auto">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="text-center mb-16 relative">
-            <h2 className="text-3xl md:text-4xl font-serif mb-4 text-[#2b3824] pt-6">Kisah Kami</h2>
+            <h2 id="story-heading" className="text-3xl md:text-4xl font-serif mb-4 text-[#2b3824] pt-6">Kisah Kami</h2>
             <div className="w-16 h-px bg-[#b1c4a1] mx-auto"></div>
+            <p className="mt-5 text-sm text-[#678254]">Perjalanan kecil yang membawa kami hingga hari ini.</p>
           </motion.div>
 
-          <div className="grid md:grid-cols-3 gap-8 relative">
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="bg-white p-8 rounded-4xl border border-[#e5eee0]/50 text-center shadow-[0_10px_40px_-15px_rgba(124,150,104,0.08)] relative md:mt-0 overflow-hidden">
-              <div className="relative z-10 w-14 h-14 bg-[#f2f6ef] text-[#678254] rounded-full flex items-center justify-center mx-auto mb-6 border border-[#e5eee0]">
-                <MessageCircle size={24} />
-              </div>
-              <h3 className="relative z-10 text-xl font-serif mb-2 text-[#2b3824]">Pertama Kali Kenal</h3>
-              <span className="relative z-10 text-[10px] font-semibold uppercase tracking-widest text-[#96ad83] block mb-4">Tahun 2017</span>
-              <p className="relative z-10 text-sm text-[#556d45] leading-relaxed">Berawal dari sapaan sederhana di dunia maya. Percakapan kecil yang perlahan mengubah hari-hari biasa menjadi rutinitas yang selalu dinanti.</p>
-            </motion.div>
-
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="bg-[#37482d] p-8 rounded-4xl text-center shadow-lg relative md:mt-12 overflow-hidden">
-              <div className="relative z-10 w-14 h-14 bg-[#455a38] text-white rounded-full flex items-center justify-center mx-auto mb-6 border border-[#556d45]">
-                <Heart size={24} />
-              </div>
-              <h3 className="relative z-10 text-xl font-serif mb-2 text-white">Jadian</h3>
-              <span className="relative z-10 text-[10px] font-semibold uppercase tracking-widest text-[#b1c4a1] block mb-4">Akhir 2017</span>
-              <p className="relative z-10 text-sm text-[#e5eee0] leading-relaxed">Jarak tidak menjadi penghalang. Kami memutuskan untuk saling mengikat komitmen satu sama lain.</p>
-            </motion.div>
-
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="bg-white p-8 rounded-4xl border border-[#e5eee0]/50 text-center shadow-[0_10px_40px_-15px_rgba(124,150,104,0.08)] relative md:mt-24 overflow-hidden">
-              <div className="relative z-10 w-14 h-14 bg-[#f2f6ef] text-[#678254] rounded-full flex items-center justify-center mx-auto mb-6 border border-[#e5eee0]">
-                <Coffee size={24} />
-              </div>
-              <h3 className="relative z-10 text-xl font-serif mb-2 text-[#2b3824]">Pertama Kali Ketemu</h3>
-              <span className="relative z-10 text-[10px] font-semibold uppercase tracking-widest text-[#96ad83] block mb-4">Awal 2018</span>
-              <p className="relative z-10 text-sm text-[#556d45] leading-relaxed">Setelah sekian lama hanya bertukar suara dan pesan, momen pertemuan pertama itu akhirnya tiba. Canggung sebentar, lalu terasa seperti sudah saling kenal sangat lama.</p>
-            </motion.div>
+          <div className="relative">
+            <motion.div
+              aria-hidden="true"
+              initial={shouldReduceMotion ? false : { scaleY: 0 }}
+              whileInView={{ scaleY: 1 }}
+              viewport={{ once: true, amount: 0.1 }}
+              transition={{ duration: 1.2, ease: "easeOut" }}
+              className="absolute left-5 top-6 bottom-6 w-px origin-top bg-[#b1c4a1] md:left-1/2"
+            />
+            <ol className="relative space-y-8 md:space-y-12">
+              {storySteps.map((step, index) => {
+                const Icon = step.icon;
+                const isRight = index % 2 === 1;
+                return (
+                  <li key={step.title} className="relative pl-14 md:grid md:grid-cols-2 md:gap-16 md:pl-0">
+                    <span aria-hidden="true" className="absolute left-5 top-8 z-10 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-[#96ad83] bg-[#fafaf8] md:left-1/2">
+                      <span className="h-2 w-2 rounded-full bg-[#7c9668]" />
+                    </span>
+                    <motion.article
+                      initial={{ opacity: 0, x: shouldReduceMotion ? 0 : isRight ? 28 : -28 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ duration: 0.7, ease: "easeOut" }}
+                      className={`relative overflow-hidden rounded-[1.75rem] border border-[#dce8d4] bg-white p-6 shadow-[0_16px_45px_-25px_rgba(55,72,45,0.3)] sm:p-8 ${isRight ? "md:col-start-2" : "md:col-start-1"}`}
+                    >
+                      <div aria-hidden="true" className="absolute inset-2 rounded-[1.35rem] border border-[#edf3e9] pointer-events-none" />
+                      <div className="relative flex items-start gap-4">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f2f6ef] text-[#678254]">
+                          <Icon aria-hidden="true" size={22} />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7c9668]">{step.date}</span>
+                          <h3 className="mt-2 text-xl font-serif text-[#2b3824]">{step.title}</h3>
+                          <p className="mt-3 text-sm leading-relaxed text-[#556d45]">{step.description}</p>
+                        </div>
+                      </div>
+                    </motion.article>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         </div>
       </section>
@@ -590,17 +645,17 @@ export default function WeddingInvitation() {
           </motion.div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="col-span-2 row-span-2 aspect-square bg-[#f2f6ef] rounded-4xl border border-[#e5eee0] group overflow-hidden relative">
-              <img src="/datan4.jpg" alt="Foto 1" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <motion.div custom={0} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="col-span-2 row-span-2 aspect-square bg-[#f2f6ef] rounded-4xl border border-[#e5eee0] group overflow-hidden relative">
+              <Image src="/datan4.jpg" alt="Foto 1" fill sizes="(min-width: 768px) 480px, 100vw" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
             </motion.div>
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="aspect-square bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
-              <img src="/datan2.jpg" alt="Foto 2" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <motion.div custom={1} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="aspect-square bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
+              <Image src="/datan2.jpg" alt="Foto 2" fill sizes="(min-width: 768px) 240px, 50vw" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
             </motion.div>
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="aspect-square bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
-              <img src="/datan3.jpg" alt="Foto 3" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <motion.div custom={2} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="aspect-square bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
+              <Image src="/datan3.jpg" alt="Foto 3" fill sizes="(min-width: 768px) 240px, 50vw" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
             </motion.div>
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="col-span-2 aspect-2/1 bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
-              <img src="/datan1.jpeg" alt="Foto 4" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <motion.div custom={3} initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-50px" }} variants={fadeInUp} className="col-span-2 aspect-2/1 bg-[#f2f6ef] rounded-3xl border border-[#e5eee0] overflow-hidden group relative">
+              <Image src="/datan1.jpeg" alt="Foto 4" fill sizes="(min-width: 768px) 480px, 100vw" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
             </motion.div>
           </div>
         </div>
@@ -671,10 +726,12 @@ export default function WeddingInvitation() {
             </span>
           </div>
 
-          <img
+          <Image
             src="/qr_lokasi.png"
             alt="QR Code Lokasi"
-            className="w-64 md:w-80 rounded-2xl bg-white p-3 shadow-xl transition duration-500 hover:scale-105"
+            width={580}
+            height={580}
+            className="w-64 md:w-80 h-auto rounded-2xl bg-white p-3 shadow-xl transition duration-500 hover:scale-105"
           />
 
           <h3 className="mt-6 text-xl font-serif text-[#2b3824]">
@@ -727,10 +784,12 @@ export default function WeddingInvitation() {
               className="bg-[#fafaf8] border border-[#e5eee0] rounded-4xl p-8 text-center hover:border-[#cddbc0] hover:shadow-xl transition-all duration-300"
             >
 
-              <img
+              <Image
                 src="/bca.png"
                 alt="BCA"
-                className="w-24 mx-auto mb-5 object-contain hover:scale-110 transition"
+                width={577}
+                height={433}
+                className="w-24 h-auto mx-auto mb-5 object-contain hover:scale-110 transition"
               />
 
               <p className="text-2xl font-light text-[#2b3824] mt-3">
@@ -765,10 +824,12 @@ export default function WeddingInvitation() {
               className="bg-[#fafaf8] border border-[#e5eee0] rounded-4xl p-8 text-center hover:border-[#cddbc0] hover:shadow-xl transition-all duration-300"
             >
 
-              <img
+              <Image
                 src="/dana.jpg"
                 alt="DANA"
-                className="w-24 mx-auto mb-5 object-contain hover:scale-110 transition"
+                width={1200}
+                height={750}
+                className="w-24 h-auto mx-auto mb-5 object-contain hover:scale-110 transition"
               />
 
               <p className="text-2xl font-light text-[#2b3824] mt-3">
@@ -803,10 +864,12 @@ export default function WeddingInvitation() {
               className="bg-[#fafaf8] border border-[#e5eee0] rounded-4xl p-8 text-center hover:border-[#cddbc0] hover:shadow-xl transition-all duration-300"
             >
 
-              <img
+              <Image
                 src="/bca.png"
                 alt="BCA"
-                className="w-24 mx-auto mb-5 object-contain hover:scale-110 transition"
+                width={577}
+                height={433}
+                className="w-24 h-auto mx-auto mb-5 object-contain hover:scale-110 transition"
               />
 
               <p className="text-2xl font-light text-[#2b3824] mt-3">
@@ -847,18 +910,22 @@ export default function WeddingInvitation() {
             <div className="absolute -top-16 -right-16 w-52 h-52 rounded-full bg-[#f2f6ef] blur-3xl opacity-70"></div>
 
             <div className="relative z-10 flex flex-col items-center">
-              <img
+              <Image
                 src="/qris.png"
                 alt="QRIS"
-                className="w-24 mx-auto mb-5 object-contain hover:scale-110 transition"
+                width={500}
+                height={500}
+                className="w-24 h-auto mx-auto mb-5 object-contain hover:scale-110 transition"
               />
             </div>
 
             <div className="relative z-10 mx-auto mt-6 w-fit rounded-4xl bg-[#fafaf8] p-4 shadow-[0_30px_80px_-35px_rgba(49,65,37,0.45)]">
-              <img
+              <Image
                 src="/qris2.jpg"
                 alt="QRIS"
-                className="w-64 md:w-80 rounded-[1.75rem] object-cover"
+                width={305}
+                height={310}
+                className="w-64 md:w-80 h-auto rounded-[1.75rem] object-cover"
               />
             </div>
 
@@ -935,7 +1002,7 @@ export default function WeddingInvitation() {
             {formattedWish && (
               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-[#37482d] p-6 rounded-2xl mt-4 relative">
                 <div className="absolute -top-3 left-6 bg-[#37482d] text-[#cddbc0] text-[10px] uppercase tracking-widest px-3 py-1 rounded-full border border-[#556d45] shadow-sm">Hasil AI</div>
-                <p className="text-[#f2f6ef] font-serif italic leading-relaxed text-sm md:text-base mt-2">"{formattedWish}"</p>
+                <p className="text-[#f2f6ef] font-serif italic leading-relaxed text-sm md:text-base mt-2">&quot;{formattedWish}&quot;</p>
               </motion.div>
             )}
             <button type="submit" disabled={loadingWish} className="w-full bg-[#37482d] text-white py-4 rounded-xl text-sm uppercase tracking-widest hover:bg-[#455a38] transition-all disabled:opacity-50">
@@ -977,9 +1044,14 @@ export default function WeddingInvitation() {
               Belum ada ucapan.
             </p>
           ) : (
-            guestBook.map((guest, index) => (
-              <div
+            <AnimatePresence initial={false}>
+            {guestBook.map((guest, index) => (
+              <motion.div
                 key={guest.id ?? index}
+                initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
                 className="bg-[#fafaf8] border border-[#e5eee0] rounded-2xl p-5"
               >
                 <div className="flex justify-between items-start gap-4">
@@ -1005,8 +1077,9 @@ export default function WeddingInvitation() {
                       })}
                   </span>
                 </div>
-              </div>
-            ))
+              </motion.div>
+            ))}
+            </AnimatePresence>
           )}
 
         </div>
@@ -1016,6 +1089,9 @@ export default function WeddingInvitation() {
       <footer className="py-12 text-center text-[#96ad83] text-xs tracking-widest uppercase bg-[#fafaf8]">
         <p>&copy; 2027 Dafa & Taniyah. Crafted with Next.js.</p>
       </footer>
+      <NotificationDialog notification={notification} onClose={() => setNotification(null)} />
+      </div>
     </main>
+    </MotionConfig>
   );
 }
